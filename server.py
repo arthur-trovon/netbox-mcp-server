@@ -1,4 +1,5 @@
 from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from netbox_client import NetBoxRestClient
 import os
 
@@ -284,6 +285,7 @@ if __name__ == "__main__":
         raise ValueError("NETBOX_URL and NETBOX_TOKEN environment variables must be set")
     
     # Initialize NetBox client
-    netbox = NetBoxRestClient(url=netbox_url, token=netbox_token)
+    netbox = NetBoxRestClient(url=netbox_url, token=netbox_token, verify_ssl=False)
     
-    mcp.run(transport="stdio")
+    port = 8081
+    mcp.run(transport="http", host="10.0.0.130", port=port)
