@@ -3,6 +3,16 @@ from fastmcp import FastMCP
 from netbox_client import NetBoxRestClient
 import os
 
+# Constants for NetBox
+NETBOX_STATUS = {
+    "ACTIVE": "active",
+    "PLANNED": "planned",
+    "STAGED": "staged",
+    "OFFLINE": "offline",
+    "FAILED": "failed",
+    "DECOMMISSIONING": "decommissioning"
+}
+
 # Mapping of simple object names to API endpoints
 NETBOX_OBJECT_TYPES = {
     # DCIM (Device and Infrastructure)
@@ -275,6 +285,227 @@ def netbox_get_changelogs(filters: dict):
     
     # Make API call
     return netbox.get(endpoint, params=filters)
+
+@mcp.tool()
+def update_netbox_object(object_type: str, object_id: int, data: dict):
+    """
+    Update an existing NetBox object by its ID.
+    
+    Args:
+        object_type: String representing the NetBox object type (e.g. "devices", "ip-addresses")
+        object_id: The numeric ID of the object to update
+        data: Object data to update with new values
+    
+    Returns:
+        The updated object as a dict
+    """
+    # Validate object_type exists in mapping
+    if object_type not in NETBOX_OBJECT_TYPES:
+        valid_types = "\n".join(f"- {t}" for t in sorted(NETBOX_OBJECT_TYPES.keys()))
+        raise ValueError(f"Invalid object_type. Must be one of:\n{valid_types}")
+        
+    # Get API endpoint from mapping
+    endpoint = NETBOX_OBJECT_TYPES[object_type]
+    
+    # Make API call
+    return netbox.update(endpoint, object_id, data)
+
+@mcp.tool()
+def create_netbox_object(object_type: str, data: dict):
+    """
+    Create a new NetBox object.
+    
+    Args:
+        object_type: String representing the NetBox object type (e.g. "devices", "ip-addresses")
+        data: Dictionary containing the object data according to NetBox API specifications
+    
+    Returns:
+        The created object as a dict
+
+    Examples:
+    Creating a new device:
+    {
+        "name": "sw-core-01",
+        "device_type": 1,  # ID of the device type
+        "device_role": 1,  # ID of the device role
+        "site": 1,         # ID of the site
+        "status": "active"
+    }
+
+    Creating a new IP address:
+    {
+        "address": "192.168.1.1/24",
+        "status": "active",
+        "dns_name": "gateway.local"
+    }
+
+    Creating a new VLAN:
+    {
+        "vid": 100,
+        "name": "User Access",
+        "site": 1,
+        "status": "active"
+    }
+    """
+    # Validate object_type exists in mapping
+    if object_type not in NETBOX_OBJECT_TYPES:
+        valid_types = "\n".join(f"- {t}" for t in sorted(NETBOX_OBJECT_TYPES.keys()))
+        raise ValueError(f"Invalid object_type. Must be one of:\n{valid_types}")
+        
+    # Get API endpoint from mapping
+    endpoint = NETBOX_OBJECT_TYPES[object_type]
+    
+    # Make API call
+    return netbox.create(endpoint, data)
+
+@mcp.tool()
+def bulk_create_netbox_objects(object_type: str, data: list):
+    """
+    Create multiple NetBox objects at once.
+    
+    Args:
+        object_type: String representing the NetBox object type (e.g. "devices", "ip-addresses")
+        data: List of dictionaries containing the object data
+              Format: [{"field1": "value1"}, {"field2": "value2"}]
+    
+    Returns:
+        List of created objects as dicts
+    """
+    # Validate object_type exists in mapping
+    if object_type not in NETBOX_OBJECT_TYPES:
+        valid_types = "\n".join(f"- {t}" for t in sorted(NETBOX_OBJECT_TYPES.keys()))
+        raise ValueError(f"Invalid object_type. Must be one of:\n{valid_types}")
+        
+    # Get API endpoint from mapping
+    endpoint = NETBOX_OBJECT_TYPES[object_type]
+    
+    # Make API call
+    return netbox.bulk_create(endpoint, data)
+
+@mcp.tool()
+def create_network_device(name: str, device_type_id: int, site_id: int, role_id: int, status: str = "active", serial: str = "", description: str = ""):
+    """
+    Create a new network device in NetBox with simplified parameters.
+    
+    Args:
+        name: Name of the device (e.g. "R1", "SW-CORE-01")
+        device_type_id: ID of the device type (reference to device types in NetBox)
+        site_id: ID of the site where the device is located
+        role_id: ID of the device role (e.g. Router, Switch, Firewall)
+        status: Device status (use NETBOX_STATUS constants, defaults to "active")
+        serial: Serial number of the device
+        description: Description of the device
+    
+    Returns:
+        The created device object
+    
+    Example:
+        create_network_device(
+            name="R1",
+            device_type_id=1,  # ISR4321
+            site_id=1,         # Main Site
+            role_id=1,         # Router
+            status=NETBOX_STATUS["ACTIVE"],
+            serial="FTX1234567",
+            description="Core Router"
+        )
+    """
+    # Validate status
+    if status not in NETBOX_STATUS.values():
+        valid_statuses = ", ".join(NETBOX_STATUS.values())
+        raise ValueError(f"Invalid status. Must be one of: {valid_statuses}")
+    
+    # Prepare device data
+    device_data = {
+        "name": name,
+        "device_type": device_type_id,
+        "site": site_id,
+        "role": role_id,
+        "status": status
+    }
+    
+    # Add optional fields if provided
+    if serial:
+        device_data["serial"] = serial
+    if description:
+        device_data["description"] = description
+    
+    return create_netbox_object("devices", device_data)
+
+@mcp.tool()
+def create_interface(device_id: int, name: str, type: str = "1000base-t", enabled: bool = True, description: str = ""):
+    """
+    Create a new interface for a device in NetBox.
+    
+    Args:
+        device_id: ID of the device to add the interface to
+        name: Name of the interface (e.g. "GigabitEthernet0/0", "Eth1/1")
+        type: Interface type (e.g. "1000base-t", "10gbase-x-sfpp")
+        enabled: Whether the interface is enabled
+        description: Description of the interface
+    
+    Returns:
+        The created interface object
+    
+    Example:
+        create_interface(
+            device_id=1,
+            name="GigabitEthernet0/0",
+            type="1000base-t",
+            enabled=True,
+            description="Connection to SW1"
+        )
+    """
+    interface_data = {
+        "device": device_id,
+        "name": name,
+        "type": type,
+        "enabled": enabled
+    }
+    
+    if description:
+        interface_data["description"] = description
+    
+    return create_netbox_object("interfaces", interface_data)
+
+@mcp.tool()
+def assign_ip_to_interface(interface_id: int, ip_address: str, status: str = "active", dns_name: str = ""):
+    """
+    Create an IP address and assign it to an interface in NetBox.
+    
+    Args:
+        interface_id: ID of the interface to assign the IP to
+        ip_address: IP address with prefix (e.g. "192.168.1.1/24")
+        status: IP address status (use NETBOX_STATUS constants, defaults to "active")
+        dns_name: DNS name for the IP address
+    
+    Returns:
+        The created IP address object
+    
+    Example:
+        assign_ip_to_interface(
+            interface_id=1,
+            ip_address="192.168.1.1/24",
+            status=NETBOX_STATUS["ACTIVE"],
+            dns_name="router1.local"
+        )
+    """
+    # Validate status
+    if status not in NETBOX_STATUS.values():
+        valid_statuses = ", ".join(NETBOX_STATUS.values())
+        raise ValueError(f"Invalid status. Must be one of: {valid_statuses}")
+    
+    ip_data = {
+        "address": ip_address,
+        "status": status,
+        "assigned_object_type": "dcim.interface",
+        "assigned_object_id": interface_id
+    }
+    
+    if dns_name:
+        ip_data["dns_name"] = dns_name
+    
+    return create_netbox_object("ip-addresses", ip_data)
 
 if __name__ == "__main__":
     # Load NetBox configuration from environment variables
